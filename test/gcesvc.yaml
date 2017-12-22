@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    name: nginx
+  namespace: default
+spec:
+  type: LoadBalancer
+#  type: NodePort
+  selector:
+    app: nginx
+  ports:
+  - name: nginx-80
+    port: 80
+    protocol: TCP
+
