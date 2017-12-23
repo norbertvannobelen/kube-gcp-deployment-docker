@@ -55,7 +55,7 @@ function setupInstallEnv() {
 # The kubernetes cluster needs several networking rules. Setup all here in one function
 # It only has to be ran once, repeated runs do not damage anything, so no previous run check is present
 function setupNetworkGeneral() {
-  gcloud compute networks create $CLUSTER_NAME --mode custom
+  gcloud compute networks create $CLUSTER_NAME --subnet-mode custom
 
   gcloud compute networks subnets create ${CLUSTER_NAME} --network $CLUSTER_NAME --range $IP_NET
 
@@ -701,7 +701,6 @@ ExecStart=/usr/local/bin/kubelet \\
   --experimental-check-node-capabilities-before-mount=true \\
   --cert-dir=/var/lib/kubelet/pki/ \\
   --enable-debugging-handlers=true \\
-  --bootstrap-kubeconfig=/var/lib/kubelet/bootstrap-kubeconfig \\
   --kubeconfig=/var/lib/kubelet/kubeconfig \\
   --hairpin-mode=promiscuous-bridge \\
   --network-plugin=kubenet \\
@@ -719,6 +718,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+  #--bootstrap-kubeconfig=/var/lib/kubelet/bootstrap-kubeconfig \\
 
 # Configure kube-proxy
   ${GSCP} kube-proxy.kubeconfig kubelet.service ${NODE_INSTALLATION_USER}@${instance}:~/
@@ -757,6 +757,7 @@ EOF
   ${GSSH}${instance} -- sudo systemctl daemon-reload
   ${GSSH}${instance} -- sudo systemctl enable kubelet kube-proxy
   ${GSSH}${instance} -- sudo systemctl start kubelet kube-proxy
+  ${GSSH}${instance} -- sudo mkdir -p /etc/kubernetes/manifests
 
 # Configure pod networking:
 
