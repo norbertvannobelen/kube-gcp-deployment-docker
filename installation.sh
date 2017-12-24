@@ -7,9 +7,9 @@ REGION=${Region:-us-east1}
 ZONE=${Zone:-us-east1-c}
 MASTER_NODE_PREFIX=${MasterNodePrefix:-kubemaster}
 WORKER_NODE_PREFIX=${WorkerNodePrefix:-kubeworker}
-NUMBER_OF_MASTERS=${NumberOfMasters:-3}
-NUMBER_OF_WORKERS=${NumberOfWorkers:-3}
-MASTER_DISK_SIZE=${MasterDiskSize:-20GB}
+NUMBER_OF_MASTERS=${NumberOfMasters:-1}
+NUMBER_OF_WORKERS=${NumberOfWorkers:-2}
+MASTER_DISK_SIZE=${MasterDiskSize:-10GB}
 WORKER_DISK_SIZE=${WorkerDiskSize:-20GB}
 WORKER_TAGS=${WorkerTags:-kubeworker}
 CLUSTER_NAME=${ClusterName:-kubernetes-17}
@@ -55,7 +55,7 @@ function setupInstallEnv() {
 # The kubernetes cluster needs several networking rules. Setup all here in one function
 # It only has to be ran once, repeated runs do not damage anything, so no previous run check is present
 function setupNetworkGeneral() {
-  gcloud compute networks create $CLUSTER_NAME --subnet-mode custom
+  gcloud compute networks create $CLUSTER_NAME --mode custom
 
   gcloud compute networks subnets create ${CLUSTER_NAME} --network $CLUSTER_NAME --range $IP_NET
 
@@ -337,11 +337,12 @@ function configureMaster() {
   ${GSSH}${instance} -- sudo mv ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem encryption-config.yaml /var/lib/kubernetes/
 
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
+  PROJECT_ID=`gcloud config list|grep "project = "|awk '{print $3}'`
 
   cat > gce.conf <<EOF
 [global]
-project-id = adacado-kube-upgrade-17-test
-network-project-id = adacado-kube-upgrade-17-test
+project-id = ${PROJECT_ID}
+network-project-id = ${PROJECT_ID}
 network-name = ${CLUSTER_NAME}
 subnetwork-name = ${CLUSTER_NAME}
 node-tags = ${WORKER_NODE_PREFIX}
@@ -834,7 +835,6 @@ EOF
   ${GSSH}${instance} -- sudo rm -f /etc/sysctl.conf
   ${GSCP} sysctl.conf ${NODE_INSTALLATION_USER}@${instance}:~/
   ${GSSH}${instance} -- sudo mv sysctl.conf /etc/sysctl.conf
-  ${GSSH}${instance} -- sudo shutdown -r -t 0 now
 }
 
 function addExtraDisk() {
@@ -856,6 +856,7 @@ function setupWorkerNodes() {
     createClientCerts ${instance}
     installWorkerSoftware ${instance}
     setupWorkerSoftware ${instance} ${i}
+    ${GSSH}${instance} -- sudo shutdown -r -t 0 now
   done
 }
 
