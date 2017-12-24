@@ -7,9 +7,9 @@ REGION=${Region:-us-east1}
 ZONE=${Zone:-us-east1-c}
 MASTER_NODE_PREFIX=${MasterNodePrefix:-kubemaster}
 WORKER_NODE_PREFIX=${WorkerNodePrefix:-kubeworker}
-NUMBER_OF_MASTERS=${NumberOfMasters:-3}
-NUMBER_OF_WORKERS=${NumberOfWorkers:-3}
-MASTER_DISK_SIZE=${MasterDiskSize:-20GB}
+NUMBER_OF_MASTERS=${NumberOfMasters:-1}
+NUMBER_OF_WORKERS=${NumberOfWorkers:-2}
+MASTER_DISK_SIZE=${MasterDiskSize:-10GB}
 WORKER_DISK_SIZE=${WorkerDiskSize:-20GB}
 WORKER_TAGS=${WorkerTags:-kubeworker}
 CLUSTER_NAME=${ClusterName:-kubernetes-17}
@@ -337,11 +337,12 @@ function configureMaster() {
   ${GSSH}${instance} -- sudo mv ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem encryption-config.yaml /var/lib/kubernetes/
 
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
+  PROJECT_ID=`gcloud config list|grep "project = "|awk '{print $3}'`
 
   cat > gce.conf <<EOF
 [global]
-project-id = adacado-kube-upgrade-17-test
-network-project-id = adacado-kube-upgrade-17-test
+project-id = ${PROJECT_ID}
+network-project-id = ${PROJECT_ID}
 network-name = ${CLUSTER_NAME}
 subnetwork-name = ${CLUSTER_NAME}
 node-tags = ${WORKER_NODE_PREFIX}
@@ -701,7 +702,6 @@ ExecStart=/usr/local/bin/kubelet \\
   --experimental-check-node-capabilities-before-mount=true \\
   --cert-dir=/var/lib/kubelet/pki/ \\
   --enable-debugging-handlers=true \\
-  --bootstrap-kubeconfig=/var/lib/kubelet/bootstrap-kubeconfig \\
   --kubeconfig=/var/lib/kubelet/kubeconfig \\
   --hairpin-mode=promiscuous-bridge \\
   --network-plugin=kubenet \\
@@ -719,6 +719,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+  #--bootstrap-kubeconfig=/var/lib/kubelet/bootstrap-kubeconfig \\
 
 # Configure kube-proxy
   ${GSCP} kube-proxy.kubeconfig kubelet.service ${NODE_INSTALLATION_USER}@${instance}:~/
@@ -757,6 +758,7 @@ EOF
   ${GSSH}${instance} -- sudo systemctl daemon-reload
   ${GSSH}${instance} -- sudo systemctl enable kubelet kube-proxy
   ${GSSH}${instance} -- sudo systemctl start kubelet kube-proxy
+  ${GSSH}${instance} -- sudo mkdir -p /etc/kubernetes/manifests
 
 # Configure pod networking:
 
@@ -833,7 +835,6 @@ EOF
   ${GSSH}${instance} -- sudo rm -f /etc/sysctl.conf
   ${GSCP} sysctl.conf ${NODE_INSTALLATION_USER}@${instance}:~/
   ${GSSH}${instance} -- sudo mv sysctl.conf /etc/sysctl.conf
-  ${GSSH}${instance} -- sudo shutdown -r -t 0 now
 }
 
 function addExtraDisk() {
@@ -855,6 +856,7 @@ function setupWorkerNodes() {
     createClientCerts ${instance}
     installWorkerSoftware ${instance}
     setupWorkerSoftware ${instance} ${i}
+    ${GSSH}${instance} -- sudo shutdown -r -t 0 now
   done
 }
 
