@@ -11,8 +11,8 @@ This version contains a set of unused software due to the switch out of CRI-O wi
 # TODO
 
 Current script paves nodes from scratch. This is a bit slow:
-- Split script in master and worker setup scripts;
 - Add image creation step for worker;
 - Initialize workers from above image instead.
 - Add intelligent node scaler
 - Add other k8s components like prometheus and fluentd
+- Add multi cluster in single Google Cloud project setup
