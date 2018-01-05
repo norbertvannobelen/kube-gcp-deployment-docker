@@ -52,13 +52,13 @@ function fetchMasterIps() {
 
 function configureRemoteAccess() {
   kubectl config set-cluster ${CLUSTER_NAME} \
-    --certificate-authority=ca.pem \
+    --certificate-authority=ca-${BASE_NAME_EXTENDED}.pem \
     --embed-certs=true \
     --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443
 
   kubectl config set-credentials admin \
-    --client-certificate=admin.pem \
-    --client-key=admin-key.pem
+    --client-certificate=admin-${BASE_NAME_EXTENDED}.pem \
+    --client-key=admin-${BASE_NAME_EXTENDED}-key.pem
 
   kubectl config set-context ${CLUSTER_NAME} \
     --cluster=${CLUSTER_NAME} \
