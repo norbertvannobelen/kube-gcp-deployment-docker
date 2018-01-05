@@ -3,7 +3,6 @@
 # TODO: To be cleaned up/refactor to docker/runc component switches
 # see norbertvannobelen/kube-gcp-deployment repo for why runc is here in this script
 
-source ./setupParameters.sh
 source ./genericFunctions.sh
 
 nodeList=""
@@ -16,7 +15,7 @@ function createWorkerNode() {
     --can-ip-forward \
     --image-family ubuntu-1604-lts \
     --image-project ubuntu-os-cloud \
-    --machine-type n1-standard-8 \
+    --machine-type ${WORKER_NODE_SIZE} \
     --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
     --subnet ${CLUSTER_NAME} \
     --tags ${CLUSTER_NAME},worker,${WORKER_TAGS} &
@@ -33,6 +32,7 @@ function createWorkerNodes() {
 
 # Create unique node identifiers (better than a sequence so that new nodes can be added later in a simple fashion)
 function generateNodeIds() {
+  unset nodeList
   for i in $(seq 1 ${NUMBER_OF_WORKERS}); do
     uniqueIdentifier=`date +%s`
     instance=${WORKER_NODE_PREFIX}-${uniqueIdentifier}
@@ -140,8 +140,7 @@ WantedBy=multi-user.target
 EOF
 
 # Configure kube-proxy
-  ${GSCP} kube-proxy.kubeconfig kubelet.service ${NODE_INSTALLATION_USER}@${instance}:~/
-  ${GSSH}${instance} -- sudo mv kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig
+  ${GSCP} kubelet.service ${NODE_INSTALLATION_USER}@${instance}:~/
 
   cat > kube-proxy.service <<EOF
 [Unit]
@@ -167,7 +166,7 @@ WantedBy=multi-user.target
 EOF
 
   ${GSCP} kube-proxy.service ${NODE_INSTALLATION_USER}@${instance}:~/
-  ${GSCP} gce.conf ${NODE_INSTALLATION_USER}@${instance}:~/
+  ${GSCP} gce-${BASE_NAME_EXTENDED}.conf ${NODE_INSTALLATION_USER}@${instance}:~/gce.conf
   ${GSSH}${instance} -- sudo mv gce.conf /etc/gce.conf
 
 # Start the components:
@@ -180,62 +179,6 @@ EOF
   ${GSSH}${instance} -- sudo groupadd docker
   ${GSSH}${instance} -- sudo usermod -aG docker ${NODE_INSTALLATION_USER}
   ${GSSH}${instance} -- sudo systemctl enable docker
-}
-
-function createClientCerts() {
-  instance=${1}
-# Client certificates:
-  cat > ${instance}-csr.json <<EOF
-{
-  "CN": "system:node:${instance}",
-  "key": {
-    "algo": "rsa",
-    "size": 2048
-  },
-  "names": [
-    {
-      "C": "CA",
-      "L": "Vancouver",
-      "O": "system:nodes",
-      "OU": "${CLUSTER_NAME}",
-      "ST": "British Columbia"
-    }
-  ]
-}
-EOF
-
-  EXTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].accessConfigs[0].natIP)')
-  INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
-
-  cfssl gencert \
-    -ca=ca.pem \
-    -ca-key=ca-key.pem \
-    -config=ca-config.json \
-    -hostname=${instance},${EXTERNAL_IP},${INTERNAL_IP} \
-    -profile=kubernetes \
-    ${instance}-csr.json | cfssljson -bare ${instance}
-
-# Generate kubernetes configuration file
-# File per worker node:
-  kubectl config set-cluster ${CLUSTER_NAME} \
-    --certificate-authority=ca.pem \
-    --embed-certs=true \
-    --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
-    --kubeconfig=${instance}.kubeconfig
-
-  kubectl config set-credentials system:node:${instance} \
-    --client-certificate=${instance}.pem \
-    --client-key=${instance}-key.pem \
-    --embed-certs=true \
-    --kubeconfig=${instance}.kubeconfig
-
-  kubectl config set-context default \
-    --cluster=${CLUSTER_NAME} \
-    --user=system:node:${instance} \
-    --kubeconfig=${instance}.kubeconfig
-
-  kubectl config use-context default --kubeconfig=${instance}.kubeconfig
-  placeWorkerCert ${instance}
 }
 
 function genericNodeCertificate() {
@@ -265,9 +208,9 @@ EOF
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
 
   cfssl gencert \
-    -ca=ca.pem \
-    -ca-key=ca-key.pem \
-    -config=ca-config.json \
+    -ca=ca-${BASE_NAME_EXTENDED}.pem \
+    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
+    -config=ca-config-${BASE_NAME_EXTENDED}.json \
     -hostname=${instance},${EXTERNAL_IP},${INTERNAL_IP} \
     -profile=kubernetes \
     ${instance}-csr.json | cfssljson -bare ${instance}
@@ -275,7 +218,7 @@ EOF
 # Generate kubernetes configuration file
 # File per worker node:
   kubectl config set-cluster ${CLUSTER_NAME} \
-    --certificate-authority=ca.pem \
+    --certificate-authority=ca-${BASE_NAME_EXTENDED}.pem \
     --embed-certs=true \
     --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
     --kubeconfig=${instance}.kubeconfig
@@ -297,13 +240,15 @@ EOF
 function placeWorkerCert() {
   instance=$1
 
-  ${GSCP} ca.pem ${instance}-key.pem ${instance}.pem ${instance}.kubeconfig kube-proxy.kubeconfig ${NODE_INSTALLATION_USER}@${instance}:~/
+  ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ${instance}-key.pem ${instance}.pem ${instance}.kubeconfig kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig ${NODE_INSTALLATION_USER}@${instance}:~/
 
 # Configure kubelet
   ${GSSH}${instance} -- sudo mkdir -p /var/lib/kubelet/
+  ${GSSH}${instance} -- sudo mkdir -p /var/lib/kube-proxy/
   ${GSSH}${instance} -- sudo mv ${instance}-key.pem ${instance}.pem /var/lib/kubelet/
   ${GSSH}${instance} -- sudo mv ${instance}.kubeconfig /var/lib/kubelet/kubeconfig
-  ${GSSH}${instance} -- sudo mv ca.pem /var/lib/kubernetes/
+  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/ca.pem
+  ${GSSH}${instance} -- sudo mv kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig /var/lib/kube-proxy/kubeconfig
 }
 
 function configureWorkerNetwork() {

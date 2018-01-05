@@ -2,6 +2,18 @@
 # This version of the script contains both runc and docker components. 
 # TODO: To be cleaned up/refactor to docker/runc component switches
 # see norbertvannobelen/kube-gcp-deployment repo for why runc is here in this script
+# 
+# USAGE:
+# Load the script using:
+# source setupMaster.sh
+# installMasters
+#
+# If a specific network is required, the auto detection script can set these network requirements up.
+# The steps are:
+# source setupMaster.sh
+# source autoSetupMultiCluster.sh
+# findNetwork
+# installMasters
 
 source ./setupParameters.sh
 source ./genericFunctions.sh
@@ -36,7 +48,7 @@ function setupNetworkGeneral() {
 # Not yet protected against multiple runs!!
 function createCA() {
 # Cert is valid for 10 years: No use to have a cluster break on a certificate expiry!
-  cat > ca-config.json <<EOF
+  cat > ca-config-${BASE_NAME_EXTENDED}.json <<EOF
 {
   "signing": {
     "default": {
@@ -52,7 +64,7 @@ function createCA() {
 }
 EOF
 
-  cat > ca-csr.json <<EOF
+  cat > ca-csr-${BASE_NAME_EXTENDED}.json <<EOF
 {
   "CN": "Kubernetes",
   "key": {
@@ -71,10 +83,10 @@ EOF
 }
 EOF
 
-  cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+  cfssl gencert -initca ca-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare ca-${BASE_NAME_EXTENDED}
 
 # admin client cert:
-  cat > admin-csr.json <<EOF
+  cat > admin-csr-${BASE_NAME_EXTENDED}.json <<EOF
 {
   "CN": "admin",
   "key": {
@@ -94,15 +106,15 @@ EOF
 EOF
 
   cfssl gencert \
-    -ca=ca.pem \
-    -ca-key=ca-key.pem \
-    -config=ca-config.json \
+    -ca=ca-${BASE_NAME_EXTENDED}.pem \
+    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
+    -config=ca-config-${BASE_NAME_EXTENDED}.json \
     -profile=kubernetes \
-    admin-csr.json | cfssljson -bare admin
+    admin-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare admin-${BASE_NAME_EXTENDED}
 
 # kube proxy certs:
 
-  cat > kube-proxy-csr.json <<EOF
+  cat > kube-proxy-csr-${BASE_NAME_EXTENDED}.json <<EOF
 {
   "CN": "system:kube-proxy",
   "key": {
@@ -122,14 +134,14 @@ EOF
 EOF
 
   cfssl gencert \
-    -ca=ca.pem \
-    -ca-key=ca-key.pem \
-    -config=ca-config.json \
+    -ca=ca-${BASE_NAME_EXTENDED}.pem \
+    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
+    -config=ca-config-${BASE_NAME_EXTENDED}.json \
     -profile=kubernetes \
-    kube-proxy-csr.json | cfssljson -bare kube-proxy
+    kube-proxy-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare kube-proxy-${BASE_NAME_EXTENDED}
 
 # Api server certificates:
-  cat > kubernetes-csr.json <<EOF
+  cat > kubernetes-csr-${BASE_NAME_EXTENDED}.json <<EOF
 {
   "CN": "kubernetes",
   "key": {
@@ -148,30 +160,30 @@ EOF
 }
 EOF
 
-# Proxy kub-config:
+# Proxy kube-config:
   kubectl config set-cluster ${CLUSTER_NAME} \
-    --certificate-authority=ca.pem \
+    --certificate-authority=ca-${BASE_NAME_EXTENDED}.pem \
     --embed-certs=true \
     --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
-    --kubeconfig=kube-proxy.kubeconfig
+    --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
 
   kubectl config set-credentials kube-proxy \
-    --client-certificate=kube-proxy.pem \
-    --client-key=kube-proxy-key.pem \
+    --client-certificate=kube-proxy-${BASE_NAME_EXTENDED}.pem \
+    --client-key=kube-proxy-${BASE_NAME_EXTENDED}-key.pem \
     --embed-certs=true \
-    --kubeconfig=kube-proxy.kubeconfig
+    --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
 
   kubectl config set-context default \
     --cluster=${CLUSTER_NAME} \
     --user=kube-proxy \
-    --kubeconfig=kube-proxy.kubeconfig
+    --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
 
-  kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
+  kubectl config use-context default --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
 
 # Key to encrypt cluster data like secrets
   ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
 
-  cat > encryption-config.yaml <<EOF
+  cat > encryption-config-${BASE_NAME_EXTENDED}.yaml <<EOF
 kind: EncryptionConfig
 apiVersion: v1
 resources:
@@ -210,17 +222,17 @@ function createMasterNodes() {
 function installMasterCertificates() {
 # 10.32.0.1 is the master on internal pod network
   cfssl gencert \
-    -ca=ca.pem \
-    -ca-key=ca-key.pem \
-    -config=ca-config.json \
+    -ca=ca-${BASE_NAME_EXTENDED}.pem \
+    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
+    -config=ca-config-${BASE_NAME_EXTENDED}.json \
     -hostname=10.32.0.1,${MASTER_IPS},${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
     -profile=kubernetes \
-  kubernetes-csr.json | cfssljson -bare kubernetes
+  kubernetes-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare kubernetes-${BASE_NAME_EXTENDED}
 
   for i in $(seq 1 ${NUMBER_OF_MASTERS}); do
-    ${GSCP} ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+    ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ca-${BASE_NAME_EXTENDED}-key.pem kubernetes-${BASE_NAME_EXTENDED}-key.pem kubernetes-${BASE_NAME_EXTENDED}.pem ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
 # Distribute the encryption password to the masters
-    ${GSCP} encryption-config.yaml ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+    ${GSCP} encryption-config-${BASE_NAME_EXTENDED}.yaml ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
   done
 }
 
@@ -263,12 +275,16 @@ function configureMaster() {
   instance=${1}
 # Create API server
   ${GSSH}${instance} -- sudo mkdir -p /var/lib/kubernetes/
-  ${GSSH}${instance} -- sudo mv ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem encryption-config.yaml /var/lib/kubernetes/
+  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/ca.pem
+  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}-key.pem /var/lib/kubernetes/ca-key.pem
+  ${GSSH}${instance} -- sudo mv kubernetes-${BASE_NAME_EXTENDED}-key.pem /var/lib/kubernetes/kubernetes-key.pem
+  ${GSSH}${instance} -- sudo mv kubernetes-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/kubernetes.pem
+  ${GSSH}${instance} -- sudo mv encryption-config-${BASE_NAME_EXTENDED}.yaml /var/lib/kubernetes/encryption-config.yaml
 
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
   PROJECT_ID=`gcloud config list|grep "project = "|awk '{print $3}'`
 
-  cat > gce.conf <<EOF
+  cat > gce-${BASE_NAME_EXTENDED}.conf <<EOF
 [global]
 project-id = ${PROJECT_ID}
 network-project-id = ${PROJECT_ID}
@@ -278,7 +294,7 @@ node-tags = ${WORKER_NODE_PREFIX}
 node-instance-prefix = ${WORKER_NODE_PREFIX}
 EOF
 
-  cat > kube-apiserver.service <<EOF
+  cat > kube-apiserver-${BASE_NAME_EXTENDED}.service <<EOF
 [Unit]
 Description=Kubernetes API Server
 Documentation=https://github.com/GoogleCloudPlatform/kubernetes
@@ -332,7 +348,7 @@ WantedBy=multi-user.target
 EOF
 
 # Controller config:
-  cat > kube-controller-manager.service <<EOF
+  cat > kube-controller-manager-${BASE_NAME_EXTENDED}.service <<EOF
 [Unit]
 Description=Kubernetes Controller Manager
 Documentation=https://github.com/GoogleCloudPlatform/kubernetes
@@ -364,7 +380,7 @@ WantedBy=multi-user.target
 EOF
 
 # Scheduler config
-  cat > kube-scheduler.service <<EOF
+  cat > kube-scheduler-${BASE_NAME_EXTENDED}.service <<EOF
 [Unit]
 Description=Kubernetes Scheduler
 Documentation=https://github.com/GoogleCloudPlatform/kubernetes
@@ -405,9 +421,12 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-  ${GSCP} glbc.service gce.conf encryption-config.yaml kube-apiserver.service kube-scheduler.service kube-controller-manager.service ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
-  ${GSSH}${instance} -- sudo mv kube-apiserver.service kube-scheduler.service kube-controller-manager.service glbc.service /etc/systemd/system/
-  ${GSSH}${instance} -- sudo mv gce.conf /etc/
+  ${GSCP} glbc.service gce-${BASE_NAME_EXTENDED}.conf encryption-config-${BASE_NAME_EXTENDED}.yaml kube-apiserver-${BASE_NAME_EXTENDED}.service kube-scheduler-${BASE_NAME_EXTENDED}.service kube-controller-manager-${BASE_NAME_EXTENDED}.service ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+  ${GSSH}${instance} -- sudo mv kube-apiserver-${BASE_NAME_EXTENDED}.service /etc/systemd/system/kube-apiserver.service
+  ${GSSH}${instance} -- sudo mv kube-scheduler-${BASE_NAME_EXTENDED}.service /etc/systemd/system/kube-scheduler.service
+  ${GSSH}${instance} -- sudo mv kube-controller-manager-${BASE_NAME_EXTENDED}.service /etc/systemd/system/kube-controller-manager.service
+  ${GSSH}${instance} -- sudo mv glbc.service /etc/systemd/system/glbc.service
+  ${GSSH}${instance} -- sudo mv gce-${BASE_NAME_EXTENDED}.conf /etc/gce.conf
   ${GSSH}${instance} -- sudo systemctl daemon-reload
   ${GSSH}${instance} -- sudo systemctl enable kube-apiserver kube-controller-manager kube-scheduler glbc
   ${GSSH}${instance} -- sudo systemctl start kube-apiserver kube-controller-manager kube-scheduler glbc
@@ -422,10 +441,12 @@ function installEtcd() {
   ${GSSH}${instance} -- sudo mv etcd-${ETCD_VERSION}-linux-amd64/etcd* /usr/local/bin/
 # Configure
   ${GSSH}${instance} -- sudo mkdir -p /etc/etcd /var/lib/etcd
-  ${GSSH}${instance} -- sudo cp ca.pem kubernetes-key.pem kubernetes.pem /etc/etcd/
+  ${GSSH}${instance} -- sudo cp ca-${BASE_NAME_EXTENDED}.pem /etc/etcd/ca.pem
+  ${GSSH}${instance} -- sudo cp kubernetes-${BASE_NAME_EXTENDED}-key.pem /etc/etcd/kubernetes-key.pem
+  ${GSSH}${instance} -- sudo cp kubernetes-${BASE_NAME_EXTENDED}.pem /etc/etcd/kubernetes.pem
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
 
-cat > etcd.service <<EOF
+cat > etcd-${BASE_NAME_EXTENDED}.service <<EOF
 [Unit]
 Description=etcd
 Documentation=https://github.com/coreos
@@ -456,7 +477,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-  ${GSCP} etcd.service ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+  ${GSCP} etcd-${BASE_NAME_EXTENDED}.service ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/etcd.service
   ${GSSH}${instance} -- sudo mv etcd.service /etc/systemd/system/
   ${GSSH}${instance} -- sudo systemctl daemon-reload
   ${GSSH}${instance} -- sudo systemctl enable etcd
@@ -476,7 +497,7 @@ function installMaster() {
   addFrontEndLoadBalancer
 }
 
-function installCluster() {
+function installMasters() {
   # Env settings:
   set -o xtrace
   # Run it all
