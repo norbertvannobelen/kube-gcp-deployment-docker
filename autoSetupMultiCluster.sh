@@ -32,8 +32,7 @@ WORKER_TAGS=${BASE_NAME}worker
 # Network parameters
 CLUSTER_NAME=kubernetes-${BASE_NAME}
 CLUSTER_CIDR=10.3.0.0/16
-CLUSTER_DNS=10.0.0.10
-IP_NET=${IpNet:-10.64.0.0/16}
+IP_NET=${IpNet:-10.2.0.0/16}
 IP_START=10.2.0.0
 IP_END=10.126.0.0
 SUBNET_RANGE=16
@@ -41,6 +40,7 @@ SUBNET_RANGE=16
 # Generic kubernetes parameters
 DNS_DOMAIN=cluster.local
 SERVICE_CLUSTER_IP_RANGE=10.0.0.0/16
+CLUSTER_DNS=10.0.0.10
 
 # Due to the way the networks are allocated in an EMPTY VPC GCP this logic works.
 # The logic looks for an empty network in the range from 
@@ -66,9 +66,16 @@ function findNetwork() {
       break
     fi
   done
+# To prevent issues on tear down of a cluster, prepend the found subnet with zeros until it is 3 digits long:
+  possibleLength=${#possibleSubnet}
+  additionalZeros=$((3-possibleLength))
+  zeros=""
+  for ((i=1;i<=${additionalZeros};i++)); do
+    zeros=${zeros}"0"
+  done
 # Possible subnet contains the possible subnets, just pick the first and set the env variables:
   echo "using subnet start: "${possibleSubnet}
-  BASE_NAME_EXTENDED=${BASE_NAME}${possibleSubnet}
+  BASE_NAME_EXTENDED=${BASE_NAME}${zeros}${possibleSubnet}
   IP_NET="10.${possibleSubnet}.0.0/${SUBNET_RANGE}"
   ((possibleSubnet++))
   CLUSTER_CIDR="10.${possibleSubnet}.0.0/${SUBNET_RANGE}"
