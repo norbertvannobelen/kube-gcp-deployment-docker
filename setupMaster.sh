@@ -220,12 +220,12 @@ function createMasterNodes() {
 }
 
 function installMasterCertificates() {
-# 10.32.0.1 is the master on internal pod network
+# 10.0.0.1 is the master on internal pod network
   cfssl gencert \
     -ca=ca-${BASE_NAME_EXTENDED}.pem \
     -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
     -config=ca-config-${BASE_NAME_EXTENDED}.json \
-    -hostname=10.32.0.1,${MASTER_IPS},${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
+    -hostname=10.0.0.1,${MASTER_IPS},${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
     -profile=kubernetes \
   kubernetes-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare kubernetes-${BASE_NAME_EXTENDED}
 
