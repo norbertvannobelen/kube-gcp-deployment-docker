@@ -72,6 +72,7 @@ function addKubeComponents() {
   kubectl create -f https://raw.githubusercontent.com/kubernetes/kubernetes/master/cluster/saltbase/salt/kube-addons/kube-addon-manager.yaml
   kubectl create -f glbc/default-backend.yaml
   kubectl create -f glbc/default-backend-svc.yaml
+  kubectl create -f dns/svc.yaml
 #  kubectl create -f https://raw.githubusercontent.com/prometheus/prometheus/master/documentation/examples/prometheus-kubernetes.yml
   kubectl create namespace monitoring
   kubectl create -f https://raw.githubusercontent.com/giantswarm/kubernetes-prometheus/master/manifests/prometheus/deployment.yaml
