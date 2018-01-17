@@ -1,3 +1,7 @@
+# fix-05
+
+- Read/write rights for storage engine access so that images can be pushed from a CI/CD to gcr.io
+
 # fix-04
 
 - Removed experimental mounter from kubelet;

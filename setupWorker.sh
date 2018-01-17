@@ -16,7 +16,7 @@ function createWorkerNode() {
     --image-family ubuntu-1604-lts \
     --image-project ubuntu-os-cloud \
     --machine-type ${WORKER_NODE_SIZE} \
-    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
+    --scopes compute-rw,storage-rw,service-management,service-control,logging-write,monitoring \
     --subnet ${CLUSTER_NAME} \
     --tags ${CLUSTER_NAME},worker,${WORKER_TAGS} &
 }
