@@ -1,3 +1,8 @@
+# fix-06
+
+- Added runAll.sh wrapper script to launch a complete cluster from 1 line. The only config settings requested are number of masters & number of workers
+- Renamed installWorker to installWorkers to be consistent with the installMasters function
+
 # fix-05
 
 - Read/write rights for storage engine access so that images can be pushed from a CI/CD to gcr.io
