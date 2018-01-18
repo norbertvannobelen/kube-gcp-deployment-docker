@@ -281,7 +281,7 @@ function setupWorkerNodes() {
   done
 }
 
-function installWorker() {
+function installWorkers() {
   # Env settings:
   set -o xtrace
   # Has to run: The Kubernetes public IP is used at several places
