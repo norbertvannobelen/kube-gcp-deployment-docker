@@ -1,3 +1,7 @@
+# fix-07
+
+- auto network configuration filter is not exact enough: Altered filter for better behavior
+
 # fix-06
 
 - Added runAll.sh wrapper script to launch a complete cluster from 1 line. The only config settings requested are number of masters & number of workers

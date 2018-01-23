@@ -48,7 +48,7 @@ CLUSTER_DNS=10.0.0.10
 # end: 10.126.0.0
 # And uses /16 ranges only. This leads to a possible 62 k8s clusters in a single GCP with each a possible 256 nodes and 65k containers
 function findNetwork() {
-  subnetList=`gcloud compute networks subnets list|grep kubernetes|awk '{print $4}'`
+  subnetList=`gcloud compute networks subnets list|awk '{print $4}'`
   possibleSubnet=""
   # subnet counter, purely for /16, not dynamic:
   startNet=$(echo ${IP_START} | grep -o '[^-]*$')
@@ -58,7 +58,7 @@ function findNetwork() {
 
   for ((i=${startNet};i<=${endNet};i+=2))
   do
-    if [[ ${subnetList} == *"${i}"* ]]
+    if [[ ${subnetList} == *"10.${i}.0.0"* ]]
     then
       echo "Net in use ${i}"
     else
