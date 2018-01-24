@@ -15,7 +15,7 @@
 # findNetwork
 # installMasters
 
-source ./setupParameters.sh
+#source ./setupParameters.sh
 source ./genericFunctions.sh
 
 # The kubernetes cluster needs several networking rules. Setup all here in one function
@@ -216,11 +216,10 @@ function createMasterNodes() {
   done
 
 # Sleep for a few moments to let masters start (Due to the order in the script, this also gives the workers enough time to start) (TODO: Replace with a ssh check: Once successful on connect, continue)
-  sleep 180
+  sleep 200
 }
 
 function installMasterCertificates() {
-# 10.0.0.1 is the master on internal pod network
   cfssl gencert \
     -ca=ca-${BASE_NAME_EXTENDED}.pem \
     -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \

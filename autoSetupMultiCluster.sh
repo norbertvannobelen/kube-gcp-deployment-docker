@@ -20,7 +20,7 @@
 
 # base name is used to sort out all networks and nodes in all the scripts called from this script:
 
-BASE_NAME=${BaseName:-kube}
+BASE_NAME=${BaseName:-staging}
 
 # Master node parameters
 MASTER_NODE_PREFIX=${BASE_NAME}master

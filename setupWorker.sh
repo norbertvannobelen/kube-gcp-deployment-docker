@@ -48,53 +48,9 @@ function generateNodeIds() {
 
 function installWorkerSoftware() {
   instance=${1}
+  ${GSCP} setupWorkerSoftware.sh ${NODE_INSTALLATION_USER}@${instance}:~/
 
-  ${GSSH}${instance} -- sudo add-apt-repository -y ppa:alexlarsson/flatpak
-#https://launchpad.net/~projectatomic/+archive/ubuntu/ppa : Update cri-o
-  ${GSSH}${instance} -- sudo apt-add-repository -y ppa:projectatomic/ppa
-  ${GSSH}${instance} -- sudo apt-get update
-  ${GSSH}${instance} -- sudo apt-get remove -y docker docker-engine docker.io
-  ${GSSH}${instance} -- sudo apt-get install -y \
-    btrfs-tools git golang-go libassuan-dev libdevmapper-dev libglib2.0-dev \
-    libc6-dev libgpgme11-dev libgpg-error-dev libseccomp-dev libselinux1-dev \
-    pkg-config runc skopeo-containers bridge-utils ntp \
-    socat libgpgme11 libostree-1-1 conntrack \
-    nfs-common \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    software-properties-common
-  ${GSSH}${instance} -- wget -q --show-progress --https-only --timestamping \
-    https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz \
-    https://github.com/opencontainers/runc/releases/download/v1.0.0-rc4/runc.amd64 \
-    https://storage.googleapis.com/kubernetes-the-hard-way/crio-amd64-v1.0.0-beta.0.tar.gz \
-    https://storage.googleapis.com/kubernetes-release/release/${KUBERNETES_VERSION}/bin/linux/amd64/kubectl \
-    https://storage.googleapis.com/kubernetes-release/release/${KUBERNETES_VERSION}/bin/linux/amd64/kube-proxy \
-    https://storage.googleapis.com/kubernetes-release/release/${KUBERNETES_VERSION}/bin/linux/amd64/kubelet
-
-# Install docker:
-  ${GSSH}${instance} -- sudo wget https://download.docker.com/linux/ubuntu/gpg
-  ${GSSH}${instance} -- sudo apt-key add gpg
-  ${GSSH}${instance} -- sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable\"
-  ${GSSH}${instance} -- sudo apt-get update
-  ${GSSH}${instance} -- sudo apt-get install -y docker-ce
-  
-  ${GSSH}${instance} -- sudo mkdir -p \
-    /etc/containers \
-    /etc/cni/net.d \
-    /etc/crio \
-    /opt/cni/bin
-  ${GSSH}${instance} -- sudo mkdir -p  /usr/local/libexec/crio \
-    /var/lib/kubelet \
-    /var/lib/kube-proxy \
-    /var/lib/kubernetes \
-    /var/run/kubernetes
-  ${GSSH}${instance} -- sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/
-  ${GSSH}${instance} -- sudo tar -xvf crio-amd64-v1.0.0-beta.0.tar.gz
-  ${GSSH}${instance} -- sudo chmod +x kubectl kube-proxy kubelet runc.amd64
-  ${GSSH}${instance} -- sudo mv runc.amd64 /usr/local/bin/runc
-  ${GSSH}${instance} -- sudo mv crio crioctl kpod kubectl kube-proxy kubelet /usr/local/bin/
-  ${GSSH}${instance} -- sudo mv conmon pause /usr/local/libexec/crio/
+  ${GSSH}${instance} -- sudo ./setupWorkerSoftware.sh ${NODE_INSTALLATION_USER} ${KUBERNETES_VERSION}
 }
 
 function setupWorkerSoftware() {
@@ -117,8 +73,6 @@ ExecStart=/usr/local/bin/kubelet \\
   --cluster-dns=${CLUSTER_DNS} \\
   --cluster-domain=cluster.local \\
   --pod-manifest-path=/etc/kubernetes/manifests \\
-  --experimental-mounter-path=/home/kubernetes/containerized_mounter/mounter \\
-  --experimental-check-node-capabilities-before-mount=true \\
   --cert-dir=/var/lib/kubelet/pki/ \\
   --enable-debugging-handlers=true \\
   --kubeconfig=/var/lib/kubelet/kubeconfig \\
@@ -173,12 +127,10 @@ EOF
   ${GSSH}${instance} -- sudo mv kubelet.service kube-proxy.service /etc/systemd/system/
   ${GSSH}${instance} -- sudo systemctl daemon-reload
   ${GSSH}${instance} -- sudo systemctl enable kubelet kube-proxy
-  ${GSSH}${instance} -- sudo systemctl start kubelet kube-proxy
 
 # Configure docker
   ${GSSH}${instance} -- sudo groupadd docker
   ${GSSH}${instance} -- sudo usermod -aG docker ${NODE_INSTALLATION_USER}
-  ${GSSH}${instance} -- sudo systemctl enable docker
 }
 
 function genericNodeCertificate() {
@@ -277,11 +229,14 @@ function setupWorkerNodes() {
     installWorkerSoftware ${instance}
     setupWorkerSoftware ${instance}
     configureWorkerNetwork ${instance}
-    ${GSSH}${instance} -- sudo shutdown -r -t 0 now
+    ${GSCP} restartWorker.sh ${NODE_INSTALLATION_USER}@${instance}:~/
+    ${GSSH}${instance} -- sudo ./restartWorker.sh
   done
 }
 
-function installWorkers() {
+function installWorker() {
+  echo "Starting worker installation"
+  date
   # Env settings:
   set -o xtrace
   # Has to run: The Kubernetes public IP is used at several places
@@ -291,6 +246,8 @@ function installWorkers() {
   createWorkerNodes
   setupWorkerNodes
   set -x xtrace
+  date
+  echo "Finished worker installation"
 }
 
 function installSingleWorker() {

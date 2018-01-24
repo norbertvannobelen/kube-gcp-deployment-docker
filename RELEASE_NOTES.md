@@ -1,3 +1,8 @@
+# fix-08
+
+- speed up worker installation by re-organizing how software is installed
+- dynamic wait for software installation to finish instead of waiting for it inline
+
 # fix-07
 
 - auto network configuration filter is not exact enough: Altered filter for better behavior
