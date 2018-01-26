@@ -57,6 +57,7 @@ function configureRemoteAccess() {
     --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443
 
   kubectl config set-credentials admin \
+    --embed-certs=true \
     --client-certificate=admin-${BASE_NAME_EXTENDED}.pem \
     --client-key=admin-${BASE_NAME_EXTENDED}-key.pem
 

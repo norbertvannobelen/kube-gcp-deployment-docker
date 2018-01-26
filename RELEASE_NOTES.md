@@ -1,3 +1,7 @@
+# fix-09
+
+- Changed admin certs to be inline in the kube config
+
 # fix-08
 
 - speed up worker installation by re-organizing how software is installed
