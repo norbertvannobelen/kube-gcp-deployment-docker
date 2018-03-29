@@ -191,7 +191,7 @@ EOF
 function placeWorkerCert() {
   instance=$1
 
-  ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ${instance}-kubelet-key.pem ${instance}-kubelet.pem ${instance}.kubeconfig kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig ${NODE_INSTALLATION_USER}@${instance}:~/
+  ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ${instance}-kubelet-key.pem ${instance}-kubelet.pem ${instance}.kubeconfig kube-proxy.kubeconfig ${NODE_INSTALLATION_USER}@${instance}:~/
 
 # Configure kubelet
   ${GSSH}${instance} -- sudo mkdir -p /var/lib/kubelet/
