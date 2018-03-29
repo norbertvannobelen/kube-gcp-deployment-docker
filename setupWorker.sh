@@ -73,7 +73,6 @@ ExecStart=/usr/local/bin/kubelet \\
   --cluster-dns=${CLUSTER_DNS} \\
   --cluster-domain=cluster.local \\
   --pod-manifest-path=/etc/kubernetes/manifests \\
-  --cert-dir=/var/lib/kubelet/pki/ \\
   --enable-debugging-handlers=true \\
   --kubeconfig=/var/lib/kubelet/kubeconfig \\
   --hairpin-mode=promiscuous-bridge \\
@@ -81,10 +80,10 @@ ExecStart=/usr/local/bin/kubelet \\
   --volume-plugin-dir=/etc/srv/kubernetes/kubelet-plugins/volume/exec \\
   --node-labels=beta.kubernetes.io/fluentd-ds-ready=true \\
   --eviction-hard=memory.available<250Mi,nodefs.available<10%,nodefs.inodesFree<5% \\
-  --tls-cert-file=/var/lib/kubelet/${instance}.pem \\
-  --tls-private-key-file=/var/lib/kubelet/${instance}-key.pem \\
+  --tls-cert-file=/var/lib/kubelet/${instance}-kubelet.pem \\
+  --tls-private-key-file=/var/lib/kubelet/${instance}-kubelet-key.pem \\
   --register-node=true \\
-  --require-kubeconfig \\
+  --require-kubeconfig=true \\
   --feature-gates=ExperimentalCriticalPodAnnotation=true
 Restart=on-failure
 RestartSec=5
@@ -136,9 +135,9 @@ EOF
 function genericNodeCertificate() {
   instance=${1}
 # Client certificates:
-  cat > ${instance}-csr.json <<EOF
+  cat > kubelet-csr.json <<EOF
 {
-  "CN": "system:node:${instance}",
+  "CN": "kubelet",
   "key": {
     "algo": "rsa",
     "size": 2048
@@ -155,17 +154,17 @@ function genericNodeCertificate() {
 }
 EOF
 
-
   EXTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].accessConfigs[0].natIP)')
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
 
+# Kubelet signing
   cfssl gencert \
     -ca=ca-${BASE_NAME_EXTENDED}.pem \
     -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
     -config=ca-config-${BASE_NAME_EXTENDED}.json \
     -hostname=${instance},${EXTERNAL_IP},${INTERNAL_IP} \
     -profile=kubernetes \
-    ${instance}-csr.json | cfssljson -bare ${instance}
+    kubelet-csr.json | cfssljson -bare ${instance}-kubelet
 
 # Generate kubernetes configuration file
 # File per worker node:
@@ -175,15 +174,15 @@ EOF
     --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
     --kubeconfig=${instance}.kubeconfig
 
-  kubectl config set-credentials system:node:${instance} \
-    --client-certificate=${instance}.pem \
-    --client-key=${instance}-key.pem \
+  kubectl config set-credentials default-auth \
+    --client-certificate=${instance}-kubelet.pem \
+    --client-key=${instance}-kubelet-key.pem \
     --embed-certs=true \
     --kubeconfig=${instance}.kubeconfig
 
   kubectl config set-context default \
     --cluster=${CLUSTER_NAME} \
-    --user=system:node:${instance} \
+    --user=default-auth \
     --kubeconfig=${instance}.kubeconfig
 
   kubectl config use-context default --kubeconfig=${instance}.kubeconfig
@@ -192,12 +191,12 @@ EOF
 function placeWorkerCert() {
   instance=$1
 
-  ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ${instance}-key.pem ${instance}.pem ${instance}.kubeconfig kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig ${NODE_INSTALLATION_USER}@${instance}:~/
+  ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ${instance}-kubelet-key.pem ${instance}-kubelet.pem ${instance}.kubeconfig kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig ${NODE_INSTALLATION_USER}@${instance}:~/
 
 # Configure kubelet
   ${GSSH}${instance} -- sudo mkdir -p /var/lib/kubelet/
   ${GSSH}${instance} -- sudo mkdir -p /var/lib/kube-proxy/
-  ${GSSH}${instance} -- sudo mv ${instance}-key.pem ${instance}.pem /var/lib/kubelet/
+  ${GSSH}${instance} -- sudo mv ${instance}-kubelet-key.pem ${instance}-kubelet.pem /var/lib/kubelet/
   ${GSSH}${instance} -- sudo mv ${instance}.kubeconfig /var/lib/kubelet/kubeconfig
   ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/ca.pem
   ${GSSH}${instance} -- sudo mv kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig /var/lib/kube-proxy/kubeconfig
