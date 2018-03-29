@@ -10,13 +10,15 @@
 #
 # If a specific network is required, the auto detection script can set these network requirements up.
 # The steps are:
+# source setupParameters.sh (optional, run once only)
 # source setupMaster.sh
 # source autoSetupMultiCluster.sh
 # findNetwork
 # installMasters
 
-#source ./setupParameters.sh
 source ./genericFunctions.sh
+
+ETCD_VERSION="v3.2.7"
 
 # The kubernetes cluster needs several networking rules. Setup all here in one function
 # It only has to be ran once, repeated runs do not damage anything, so no previous run check is present
@@ -66,7 +68,7 @@ EOF
 
   cat > ca-csr-${BASE_NAME_EXTENDED}.json <<EOF
 {
-  "CN": "Kubernetes",
+  "CN": "kubernetes",
   "key": {
     "algo": "rsa",
     "size": 2048
@@ -75,7 +77,7 @@ EOF
     {
       "C": "CA",
       "L": "Vancouver",
-      "O": "Kubernetes",
+      "O": "kubernetes",
       "OU": "CA",
       "ST": "British Columbia"
     }
@@ -97,7 +99,7 @@ EOF
     {
       "C": "CA",
       "L": "Vancouver",
-      "O": "system:masters",
+      "O": "cluster-admin",
       "OU": "${CLUSTER_NAME}",
       "ST": "British Columbia"
     }
@@ -112,34 +114,6 @@ EOF
     -profile=kubernetes \
     admin-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare admin-${BASE_NAME_EXTENDED}
 
-# kube proxy certs:
-
-  cat > kube-proxy-csr-${BASE_NAME_EXTENDED}.json <<EOF
-{
-  "CN": "system:kube-proxy",
-  "key": {
-    "algo": "rsa",
-    "size": 2048
-  },
-  "names": [
-    {
-      "C": "CA",
-      "L": "Vancouver",
-      "O": "system:node-proxier",
-      "OU": "${CLUSTER_NAME}",
-      "ST": "British Columbia"
-    }
-  ]
-}
-EOF
-
-  cfssl gencert \
-    -ca=ca-${BASE_NAME_EXTENDED}.pem \
-    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
-    -config=ca-config-${BASE_NAME_EXTENDED}.json \
-    -profile=kubernetes \
-    kube-proxy-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare kube-proxy-${BASE_NAME_EXTENDED}
-
 # Api server certificates:
   cat > kubernetes-csr-${BASE_NAME_EXTENDED}.json <<EOF
 {
@@ -152,33 +126,13 @@ EOF
     {
       "C": "CA",
       "L": "Vancouver",
-      "O": "Kubernetes",
+      "O": "kubernetes",
       "OU": "${CLUSTER_NAME}",
       "ST": "British Columbia"
     }
   ]
 }
 EOF
-
-# Proxy kube-config:
-  kubectl config set-cluster ${CLUSTER_NAME} \
-    --certificate-authority=ca-${BASE_NAME_EXTENDED}.pem \
-    --embed-certs=true \
-    --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
-    --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
-
-  kubectl config set-credentials kube-proxy \
-    --client-certificate=kube-proxy-${BASE_NAME_EXTENDED}.pem \
-    --client-key=kube-proxy-${BASE_NAME_EXTENDED}-key.pem \
-    --embed-certs=true \
-    --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
-
-  kubectl config set-context default \
-    --cluster=${CLUSTER_NAME} \
-    --user=kube-proxy \
-    --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
-
-  kubectl config use-context default --kubeconfig=kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig
 
 # Key to encrypt cluster data like secrets
   ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
@@ -196,6 +150,68 @@ resources:
               secret: ${ENCRYPTION_KEY}
       - identity: {}
 EOF
+
+# Kubec controller manager kubeconfig file:
+  for user in kube-proxy kube-controller-manager kube-scheduler aggregator
+  do
+# Generate certificate signing
+    cat > ${user}-csr-${BASE_NAME_EXTENDED}.json <<EOF
+{
+  "CN": "system:${user}",
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "CA",
+      "L": "Vancouver",
+      "O": "system:${user}",
+      "OU": "${CLUSTER_NAME}",
+      "ST": "British Columbia"
+    } 
+  ]
+}
+EOF
+
+# Generate cert
+    cfssl gencert \
+      -ca=ca-${BASE_NAME_EXTENDED}.pem \
+      -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
+      -config=ca-config-${BASE_NAME_EXTENDED}.json \
+      -profile=kubernetes \
+      ${user}-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare ${user}-${BASE_NAME_EXTENDED}
+
+# Signing token (where applicable)
+    TOKEN=$(dd if=/dev/urandom bs=128 count=1 2>/dev/null | base64 | tr -d "=+/" | dd bs=32 count=1 2>/dev/null)
+
+# Generate kubeconfig file per component for secure communication
+    kubectl config set-cluster ${CLUSTER_NAME} \
+      --certificate-authority=ca-${BASE_NAME_EXTENDED}.pem \
+      --embed-certs=true \
+      --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
+      --kubeconfig=${user}.kubeconfig
+    kubectl config set-credentials ${user} \
+      --client-certificate=${user}-${BASE_NAME_EXTENDED}.pem \
+      --client-key=${user}-${BASE_NAME_EXTENDED}-key.pem \
+      --embed-certs=true \
+      --token=${TOKEN} \
+      --kubeconfig=${user}.kubeconfig
+    kubectl config set-context ${user} \
+      --cluster=${CLUSTER_NAME} \
+      --user=${user} \
+      --kubeconfig=${user}.kubeconfig
+
+    kubectl config use-context ${user} --kubeconfig=${user}.kubeconfig
+  done  
+
+  cfssl gencert \
+    -ca=ca-${BASE_NAME_EXTENDED}.pem \
+    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
+    -config=ca-config-${BASE_NAME_EXTENDED}.json \
+    -hostname=10.0.0.1,${MASTER_IPS},${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
+    -profile=kubernetes \
+  kubernetes-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare kubernetes-${BASE_NAME_EXTENDED}
 }
 
 # Can only be run once. 
@@ -217,22 +233,6 @@ function createMasterNodes() {
 
 # Sleep for a few moments to let masters start (Due to the order in the script, this also gives the workers enough time to start) (TODO: Replace with a ssh check: Once successful on connect, continue)
   sleep 200
-}
-
-function installMasterCertificates() {
-  cfssl gencert \
-    -ca=ca-${BASE_NAME_EXTENDED}.pem \
-    -ca-key=ca-${BASE_NAME_EXTENDED}-key.pem \
-    -config=ca-config-${BASE_NAME_EXTENDED}.json \
-    -hostname=10.0.0.1,${MASTER_IPS},${KUBERNETES_PUBLIC_ADDRESS},127.0.0.1,kubernetes.default \
-    -profile=kubernetes \
-  kubernetes-csr-${BASE_NAME_EXTENDED}.json | cfssljson -bare kubernetes-${BASE_NAME_EXTENDED}
-
-  for i in $(seq 1 ${NUMBER_OF_MASTERS}); do
-    ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ca-${BASE_NAME_EXTENDED}-key.pem kubernetes-${BASE_NAME_EXTENDED}-key.pem kubernetes-${BASE_NAME_EXTENDED}.pem ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
-# Distribute the encryption password to the masters
-    ${GSCP} encryption-config-${BASE_NAME_EXTENDED}.yaml ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
-  done
 }
 
 function addFrontEndLoadBalancer() {
@@ -257,7 +257,7 @@ function addFrontEndLoadBalancer() {
 
 function installMasterSoftware() {
   instance=${1}
-  ${GSSH}${instance} -- wget -q --show-progress --https-only --timestamping \
+  ${GSSH}${instance} -- wget -q --https-only \
     "https://storage.googleapis.com/kubernetes-release/release/${KUBERNETES_VERSION}/bin/linux/amd64/kube-apiserver" \
     "https://storage.googleapis.com/kubernetes-release/release/${KUBERNETES_VERSION}/bin/linux/amd64/kube-controller-manager" \
     "https://storage.googleapis.com/kubernetes-release/release/${KUBERNETES_VERSION}/bin/linux/amd64/kube-scheduler" \
@@ -273,13 +273,6 @@ function installMasterSoftware() {
 function configureMaster() {
   instance=${1}
 # Create API server
-  ${GSSH}${instance} -- sudo mkdir -p /var/lib/kubernetes/
-  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/ca.pem
-  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}-key.pem /var/lib/kubernetes/ca-key.pem
-  ${GSSH}${instance} -- sudo mv kubernetes-${BASE_NAME_EXTENDED}-key.pem /var/lib/kubernetes/kubernetes-key.pem
-  ${GSSH}${instance} -- sudo mv kubernetes-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/kubernetes.pem
-  ${GSSH}${instance} -- sudo mv encryption-config-${BASE_NAME_EXTENDED}.yaml /var/lib/kubernetes/encryption-config.yaml
-
   INTERNAL_IP=$(gcloud compute instances describe ${instance} --format 'value(networkInterfaces[0].networkIP)')
   PROJECT_ID=`gcloud config list|grep "project = "|awk '{print $3}'`
 
@@ -339,6 +332,15 @@ ExecStart=/usr/local/bin/kube-apiserver \\
   --tls-ca-file=/var/lib/kubernetes/ca.pem \\
   --tls-cert-file=/var/lib/kubernetes/kubernetes.pem \\
   --tls-private-key-file=/var/lib/kubernetes/kubernetes-key.pem
+  --enable-aggregator-routing=true \\
+  --requestheader-client-ca-file=/var/lib/kubernetes/ca.pem \\
+  --requestheader-extra-headers-prefix=X-Remote-Extra- \\
+  --requestheader-allowed-names=system:aggregator,system:kube-proxy,kubelet,admin,system:kube-controller-manager \\
+  --requestheader-group-headers=X-Remote-Group \\
+  --requestheader-username-headers=X-Remote-User \\
+  --proxy-client-cert-file=/var/lib/kubernetes/aggr.pem \\
+  --proxy-client-key-file=/var/lib/kubernetes/aggr-key.pem \\
+  --anonymous-auth=true
 Restart=on-failure
 RestartSec=5
 
@@ -358,19 +360,16 @@ ExecStart=/usr/local/bin/kube-controller-manager \\
   --cloud-config=/etc/gce.conf \\
   --use-service-account-credentials \\
   --cloud-provider=gce \\
-  --root-ca-file=/var/lib/kubernetes/ca.pem \\
-  --service-account-private-key-file=/var/lib/kubernetes/ca-key.pem \\
+  --kubeconfig=/var/lib/kubernetes/kube-controller-manager.kubeconfig \\
   --service-cluster-ip-range=${SERVICE_CLUSTER_IP_RANGE} \\
   --cluster-cidr=${CLUSTER_CIDR} \\
   --cluster-name=kubernetes \\
-  --cluster-signing-cert-file=/var/lib/kubernetes/ca.pem \\
-  --cluster-signing-key-file=/var/lib/kubernetes/ca-key.pem \\
   --allocate-node-cidrs=true \\
   --feature-gates=ExperimentalCriticalPodAnnotation=true \\
   --flex-volume-plugin-dir=/etc/srv/kubernetes/kubelet-plugins/volume/exec\\
   --address=0.0.0.0 \\
   --leader-elect=true \\
-  --master=http://${INTERNAL_IP}:8080 
+  --horizontal-pod-autoscaler-use-rest-clients=false
 Restart=on-failure
 RestartSec=5
 
@@ -388,7 +387,7 @@ Documentation=https://github.com/GoogleCloudPlatform/kubernetes
 ExecStart=/usr/local/bin/kube-scheduler \\
   --leader-elect=true \\
   --feature-gates=ExperimentalCriticalPodAnnotation=true \\
-  --master=http://${INTERNAL_IP}:8080 \\
+  --kubeconfig=/var/lib/kubernetes/kube-scheduler.kubeconfig \\
   --v=2
 Restart=on-failure
 RestartSec=5
@@ -420,10 +419,26 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-  ${GSCP} glbc.service gce-${BASE_NAME_EXTENDED}.conf encryption-config-${BASE_NAME_EXTENDED}.yaml kube-apiserver-${BASE_NAME_EXTENDED}.service kube-scheduler-${BASE_NAME_EXTENDED}.service kube-controller-manager-${BASE_NAME_EXTENDED}.service ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+  ${GSCP} ca-${BASE_NAME_EXTENDED}.pem ca-${BASE_NAME_EXTENDED}-key.pem kubernetes-${BASE_NAME_EXTENDED}-key.pem kubernetes-${BASE_NAME_EXTENDED}.pem ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+# Distribute the encryption password to the masters
+  ${GSCP} encryption-config-${BASE_NAME_EXTENDED}.yaml ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+  for user in node-proxier kube-controller-manager kube-scheduler aggregator
+  do
+    ${GSCP} ${user}-${BASE_NAME_EXTENDED}.kubeconfig ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
+  done
+
+  ${GSSH}${instance} -- sudo mkdir -p /var/lib/kubernetes/
+  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/ca.pem
+  ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}-key.pem /var/lib/kubernetes/ca-key.pem
+  ${GSSH}${instance} -- sudo mv kubernetes-${BASE_NAME_EXTENDED}-key.pem /var/lib/kubernetes/kubernetes-key.pem
+  ${GSSH}${instance} -- sudo mv kubernetes-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/kubernetes.pem
+  ${GSSH}${instance} -- sudo mv encryption-config-${BASE_NAME_EXTENDED}.yaml /var/lib/kubernetes/encryption-config.yaml
+
+  ${GSCP} glbc.service gce-${BASE_NAME_EXTENDED}.conf kube-apiserver-${BASE_NAME_EXTENDED}.service kube-scheduler-${BASE_NAME_EXTENDED}.service kube-controller-manager-${BASE_NAME_EXTENDED}.service ${NODE_INSTALLATION_USER}@${MASTER_NODE_PREFIX}${i}:~/
   ${GSSH}${instance} -- sudo mv kube-apiserver-${BASE_NAME_EXTENDED}.service /etc/systemd/system/kube-apiserver.service
   ${GSSH}${instance} -- sudo mv kube-scheduler-${BASE_NAME_EXTENDED}.service /etc/systemd/system/kube-scheduler.service
   ${GSSH}${instance} -- sudo mv kube-controller-manager-${BASE_NAME_EXTENDED}.service /etc/systemd/system/kube-controller-manager.service
+  ${GSSH}${instance} -- sudo mv *.kubeconfig /var/lib/kubernetes/
   ${GSSH}${instance} -- sudo mv glbc.service /etc/systemd/system/glbc.service
   ${GSSH}${instance} -- sudo mv gce-${BASE_NAME_EXTENDED}.conf /etc/gce.conf
   ${GSSH}${instance} -- sudo systemctl daemon-reload
@@ -433,7 +448,6 @@ EOF
  
 function installEtcd() {
   instance=${1}
-  ETCD_VERSION="v3.2.7"
   ${GSSH}${instance} -- wget -q --https-only --timestamping \
     "https://github.com/coreos/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz"
   ${GSSH}${instance} -- tar xf etcd-${ETCD_VERSION}-linux-amd64.tar.gz
@@ -508,7 +522,6 @@ function installMasters() {
   createMasterNodes
   fetchMasterIps
   echo "MASTER_IPS set: ${MASTER_IPS}"
-  installMasterCertificates
   installMaster
   configureRemoteAccess
   setupRBAC

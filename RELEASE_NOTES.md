@@ -1,3 +1,10 @@
+# fix-10
+
+- Replaced the use of localhost master on port 8080 with certificate based methods for the master servers;
+- Added kubeconfig files to kube-proxy and kubelet for correct usernames;
+- Primary implementation for use of metrics-server added (disabled due to system:anonymous message from HPA, under investigation. Using legacy method for HPA for now)
+- Refactor certificate functions to be more concise
+
 # fix-09
 
 - Changed admin certs to be inline in the kube config
