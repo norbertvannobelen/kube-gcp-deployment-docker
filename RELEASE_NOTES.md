@@ -1,3 +1,7 @@
+# fix-11
+
+- kube-proxy.kubeconfig installation had legacy code which resulted in not moving the file to kubeconfig
+
 # fix-10
 
 - Replaced the use of localhost master on port 8080 with certificate based methods for the master servers;

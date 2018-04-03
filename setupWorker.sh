@@ -199,7 +199,7 @@ function placeWorkerCert() {
   ${GSSH}${instance} -- sudo mv ${instance}-kubelet-key.pem ${instance}-kubelet.pem /var/lib/kubelet/
   ${GSSH}${instance} -- sudo mv ${instance}.kubeconfig /var/lib/kubelet/kubeconfig
   ${GSSH}${instance} -- sudo mv ca-${BASE_NAME_EXTENDED}.pem /var/lib/kubernetes/ca.pem
-  ${GSSH}${instance} -- sudo mv kube-proxy-${BASE_NAME_EXTENDED}.kubeconfig /var/lib/kube-proxy/kubeconfig
+  ${GSSH}${instance} -- sudo mv kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig
 }
 
 function configureWorkerNetwork() {
