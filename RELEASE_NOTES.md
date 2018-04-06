@@ -1,3 +1,8 @@
+# fix-12
+
+- Updated kube-apiserver config due to error in token management (auth issue on api server)
+- Fixed typo in placing kubeconfig file for kubeproxy
+
 # fix-11
 
 - kube-proxy.kubeconfig installation had legacy code which resulted in not moving the file to kubeconfig
